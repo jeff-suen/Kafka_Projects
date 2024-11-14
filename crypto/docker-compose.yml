@@ -37,7 +37,7 @@ services:
       - kafka        
     command: python3 api.py
     ports:
-     - '5000:5000'
+     - '5001:5000' # Mapping to a different host port
   trade_consumer:
     build: 
       context: .
