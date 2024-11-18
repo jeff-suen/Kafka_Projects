@@ -32,8 +32,10 @@ import psycopg2
 from confluent_kafka import Consumer, KafkaError, KafkaException
 from confluent_kafka.serialization import StringDeserializer
 from employee import Employee
-from employee import Employee
 from producer import employee_topic_name
+
+schema_name = "project_2"
+table_name = "employees"
 
 class cdcConsumer(Consumer):
     #if running outside Docker (i.e. producer is NOT in the docer-compose file): host = localhost and port = 29092
@@ -52,9 +54,20 @@ class cdcConsumer(Consumer):
             self.subscribe(topics)
             while self.keep_runnning:
                 #implement your logic here
-
-                pass
+                msg = self.poll(timeout=1.0)
+                if msg is None:
+                    print("No msg to consume...")
+                    continue
+                if msg.error():
+                    if msg.error().code() == KafkaError._PARTITION_EOF:
+                        sys.stderr.write('%% %s [%d] reached end at offset %d\n' %
+                                         (msg.topic(), msg.partition(), msg.offset()))
+                    elif msg.error():
+                        raise KafkaException(msg.error())
+                else:
+                    print(f'processing from {self.group_id} with the action: {processing_func(msg)}')
         finally:
+            # Close down consumer to commit final offsets.
             self.close()
 
 def update_dst(msg):
@@ -69,14 +82,49 @@ def update_dst(msg):
         conn.autocommit = True
         cur = conn.cursor()
         #your logic goes here
+        # Retriving the action data from messages
+        action = e.action
 
-
-
-
+        if action.lower() == "insert":
+            # Insert the record into employee table in the destination database
+            cur.execute(
+                f"""
+                INSERT INTO {schema_name}.{table_name} (emp_id, first_name, last_name, dob, city)
+                VALUES (%s, %s, %s, %s, %s)
+                """,
+                (e.emp_id, e.first_name, e.last_name, e.dob, e.city),
+            )
+            print(f"Inserted record: {e.emp_id, e.first_name, e.last_name, e.dob, e.city}")
+        
+        elif action.lower() == "update":
+            # Update the record in employee table in the destination database
+            cur.execute(
+                f"""
+                UPDATE {schema_name}.{table_name} 
+                SET first_name = %s, last_name = %s, dob = %s, city = %s
+                WHERE emp_id = %s
+                """,
+                (e.first_name, e.last_name, e.dob, e.city, e.emp_id),
+            )
+            print(f"Updated record: {e.emp_id, e.first_name, e.last_name, e.dob, e.city}")
+        
+        elif action.lower() == "delete":
+            # Delete the record from employee table in the destination database
+            cur.execute(
+                f"""
+                DELETE FROM {schema_name}.{table_name} 
+                WHERE emp_id = %s
+                """,
+                (e.emp_id,),
+            )
+            print(f"Deleted record: {e.emp_id, e.first_name, e.last_name, e.dob, e.city}")
+            
         cur.close()
+
+        return action
     except Exception as err:
         print(err)
 
 if __name__ == '__main__':
-    consumer = cdcConsumer(group_id=?) 
+    consumer = cdcConsumer(group_id= "employee_project_2") 
     consumer.consume([employee_topic_name], update_dst)

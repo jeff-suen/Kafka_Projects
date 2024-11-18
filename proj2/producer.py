@@ -29,12 +29,15 @@ import os
 from confluent_kafka import Producer
 from employee import Employee
 import confluent_kafka
-from pyspark.sql import SparkSession
+# from pyspark.sql import SparkSession
 import pandas as pd
 from confluent_kafka.serialization import StringSerializer
 import psycopg2
 
-employee_topic_name = "bf_employee_cdc"
+employee_topic_name = "employee_cdc_operation"
+schema_name = "project_2"
+employees_cdc = "employees_cdc"
+employees_perm_cdc = "employees_perm_cdc"
 
 class cdcProducer(Producer):
     #if running outside Docker (i.e. producer is NOT in the docer-compose file): host = localhost and port = 29092
@@ -47,7 +50,7 @@ class cdcProducer(Producer):
         super().__init__(producerConfig)
         self.running = True
     
-    def fetch_cdc(self,):
+    def fetch_and_delete_cdc(self,):
         try:
             conn = psycopg2.connect(
                 host="localhost",
@@ -59,13 +62,52 @@ class cdcProducer(Producer):
             cur = conn.cursor()
             #your logic should go here
             
+            # Fetching records
+            query = f"""
+                    SELECT 
+                        action_id,
+                        emp_id,
+                        first_name,
+                        last_name,
+                        dob,
+                        city,
+                        action 
+                    FROM {schema_name}.{employees_cdc}
+                    ORDER BY action_id ASC
+                    ;
+                    """
+            cur.execute(query)
+            cdc_records = cur.fetchall()
 
+            cur.execute(f"""
+                        INSERT INTO {schema_name}.{employees_perm_cdc}(
+                            emp_id,
+                            first_name,
+                            last_name,
+                            dob,
+                            city,
+                            action)
+                        SELECT 
+                            emp_id,
+                            first_name,
+                            last_name,
+                            dob,
+                            city,
+                            action
+                        FROM {schema_name}.{employees_cdc}
+                        ;""")
 
+            cur.execute(f"DELETE FROM {schema_name}.{employees_cdc};")
+            
             cur.close()
-        except Exception as err:
-            pass
+            conn.close()
+
+            return cdc_records
         
-        return # if you need to return sth, modify here
+        except Exception as err:
+            print(f"CDC records fecthing error: {err}")
+        
+        
     
 
 if __name__ == '__main__':
@@ -74,5 +116,21 @@ if __name__ == '__main__':
     
     while producer.running:
         # your implementation goes here
-        pass
+        new_records = producer.fetch_and_delete_cdc()
+
+         # Check if there are new records to process
+        if new_records:
+            for line in new_records:
+                emp = Employee.from_line(line)
+                producer.produce(
+                    employee_topic_name, 
+                    key=encoder(str(emp.emp_id)), 
+                    value=encoder(emp.to_json()))
+                producer.poll(0)
+            print(f"Successfully processed {len(new_records)} new records.")
+        
+        else:
+            print("No new modifications/addtions found.")
+        
+
     

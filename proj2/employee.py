@@ -1,13 +1,13 @@
 import json
 
 class Employee:
-    def __init__(self,  action_id: int, emp_id: int, emp_FN: str, emp_LN: str, emp_dob: str, emp_city: str, action: str):
+    def __init__(self,  action_id: int, emp_id: int, first_name: str, last_name: str, dob: str, city: str, action: str):
         self.action_id = action_id
         self.emp_id = emp_id
-        self.emp_FN = emp_FN
-        self.emp_LN = emp_LN
-        self.emp_dob = emp_dob
-        self.emp_city = emp_city
+        self.first_name = first_name
+        self.last_name = last_name
+        self.dob = dob
+        self.city = city
         self.action = action
         
     @staticmethod
